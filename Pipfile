@@ -12,6 +12,7 @@ matplotlib = "*"
 sphinx = "*"
 tqdm = "*"
 furo = "*"
+ipdb = "*"
 
 [dev-packages]
 
