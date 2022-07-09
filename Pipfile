@@ -13,6 +13,7 @@ sphinx = "*"
 tqdm = "*"
 furo = "*"
 ipdb = "*"
+tables = "*"
 
 [dev-packages]
 
