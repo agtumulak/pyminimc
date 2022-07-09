@@ -135,7 +135,8 @@ def to_svd_dfs(
     df
         Original DataFrame to decompose using singular value dcomposition
     order
-        Order to truncate singular value decomposition
+        Order to truncate singular value decomposition. Setting to None will
+        set order to rank of DataFrame.
     """
     U, S, Vt = np.linalg.svd(df, full_matrices=False)
     order = S.size if order is None else order
@@ -163,7 +164,7 @@ def to_svd_dfs(
     return U_df, S_df, V_df
 
 
-def reconstruct_from_svd_dfs(
+def from_svd_dfs(
     U_df: pd.DataFrame, S_df: pd.DataFrame, V_df: pd.DataFrame
 ) -> pd.DataFrame:
     """
