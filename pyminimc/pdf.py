@@ -229,17 +229,17 @@ def get_pdf_runsab(counts_path, *bounds_paths):
     )
 
 
-def get_pdf_mcnp(mctal_path, E, T, label=None):
+def get_pdf_mcnp(mctal_path: str, E: float, T: float, label=None):
     """
     Creates bivariate PDF in alpha and beta from an MCNP mctal file
 
     Parameters
     ----------
-    mctal_path : string
+    mctal_path
         Path to mctal file
-    E : float
+    E
         Incident energy in eV
-    T : float
+    T
         Temperature in K
     """
     label = label if label else "mcnp"
@@ -325,9 +325,20 @@ def get_pdf_mcnp(mctal_path, E, T, label=None):
     )
 
 
-def get_pdf_minimc(minimc_path, E, T, label=None):
+def get_pdf_minimc(
+    minimc_path: str, E: float, T: float, label: str | None = None
+):
     """
     Creates bivariate PDF in alpha and beta from minimc output
+
+    Parameters
+    ----------
+    minimc_path
+        Path to minimc output file
+    E
+        Incident energy in eV
+    T
+        Temperature in K
     """
     label = label if label else "minimc"
     with open(minimc_path) as f:
