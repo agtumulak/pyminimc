@@ -199,7 +199,7 @@ def beta_functional_expansion(
         V_df.index.unique(level="E") * 1e-6, level="E"
     )
     # reconstruct
-    beta_df_reconstructed = util.reconstruct_from_svd_dfs(U_df, S_df, V_df)
+    beta_df_reconstructed = util.from_svd_dfs(U_df, S_df, V_df)
     # check that CDFS are monotonic for certain T values
     print(
         f"RMSE: {np.sqrt(((beta_df_reconstructed - beta_df)**2).mean().mean())}"
