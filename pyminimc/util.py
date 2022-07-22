@@ -80,10 +80,12 @@ def parse_file7(mf7_path: str):
         return df
 
 
-def marginalize(series: pd.Series, marginal_group: str, leftmost_point):
+def marginalize(
+    series: pd.Series, marginal_group: str, boundaries: list[float]
+) -> pd.Series:
     """
     Marginalizes a multivariate PDF with proper handling of nonzero PDF values
-    at boundaries
+    near boundaries
 
     Parameters
     ----------
@@ -91,44 +93,26 @@ def marginalize(series: pd.Series, marginal_group: str, leftmost_point):
       The PDF to be marginalize
     marginal_group:
       MultiIndex level name for dimension to integrate over
-    leftmost_point:
+    boundaries:
       The PDFs are assumed to be given at interior points of the axis to
-      marginalized. The leftmost point can be used to compute the rightmost
-      point assuming midpoints are used to compute the interior points.
+      marginalized. The boundaries specify where the PDF goes to zero.
     """
-
-    def integrate(
-        series: pd.Series,
-        marginal_group: str,
-        leftmost_point: float,
-        rightmost_point: float,
-    ):
-        x = np.concatenate(
-            (
-                np.array([leftmost_point]),
-                series.index.get_level_values(marginal_group),
-                np.array([rightmost_point]),
-            )
-        )
-        y = np.concatenate((np.array([0]), series, np.array([0])))
-        return np.trapz(y, x)
-
-    # determine rightmost point
-    midpoints = np.concatenate(
-        [[0.5 * leftmost_point], list(series.index.unique(marginal_group))]
-    )
-    c = np.zeros(len(midpoints))
-    c[:2] = 1
-    rightmost_point = solve_toeplitz(
-        (0.5 * c, np.zeros(len(midpoints))), midpoints
-    )[-1]
-
-    # integrate marginalized group
+    leftmost_point, rightmost_point = boundaries
     unmarginalized_groups = list(
         set(series.index.names) - set([marginal_group])
     )
     return series.groupby(level=unmarginalized_groups).apply(
-        integrate, marginal_group, leftmost_point, rightmost_point
+        lambda series, marginal_group: np.trapz(
+            np.concatenate((np.array([0]), series, np.array([0]))),
+            np.concatenate(
+                (
+                    np.array([leftmost_point]),
+                    series.index.get_level_values(marginal_group),
+                    np.array([rightmost_point]),
+                )
+            ),
+        ),
+        marginal_group,
     )
 
 
