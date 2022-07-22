@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 import re
+from scipy.linalg import solve_toeplitz
+
 
 def parse_file7(mf7_path: str):
     """
@@ -78,24 +80,55 @@ def parse_file7(mf7_path: str):
         return df
 
 
-def marginalize(s, axis="beta"):
+def marginalize(series: pd.Series, marginal_group: str, leftmost_point):
     """
-    Converts a bivariate PDF into a univariate PDF in given axis
+    Marginalizes a multivariate PDF with proper handling of nonzero PDF values
+    at boundaries
 
     Parameters
     ----------
-    s : pd.Series
-        Bivariate PDF in alpha and beta to plot. MultiIndex must be beta
-        followed by alpha.
-    axis : {'alpha', 'beta'}, optional
-        The axis of the resulting univariate PDF
-
-    Todo
-    ----
-    Fix issue where values probability mass near edges is dropped/ignored
+    series:
+      The PDF to be marginalize
+    marginal_group:
+      MultiIndex level name for dimension to integrate over
+    leftmost_point:
+      The PDFs are assumed to be given at interior points of the axis to
+      marginalized. The leftmost point can be used to compute the rightmost
+      point assuming midpoints are used to compute the interior points.
     """
-    return s.groupby(axis).apply(
-        lambda s: np.trapz(s.values, s.index.droplevel(axis))
+
+    def integrate(
+        series: pd.Series,
+        marginal_group: str,
+        leftmost_point: float,
+        rightmost_point: float,
+    ):
+        x = np.concatenate(
+            (
+                np.array([leftmost_point]),
+                series.index.get_level_values(marginal_group),
+                np.array([rightmost_point]),
+            )
+        )
+        y = np.concatenate((np.array([0]), series, np.array([0])))
+        return np.trapz(y, x)
+
+    # determine rightmost point
+    midpoints = np.concatenate(
+        [[0.5 * leftmost_point], list(series.index.unique(marginal_group))]
+    )
+    c = np.zeros(len(midpoints))
+    c[:2] = 1
+    rightmost_point = solve_toeplitz(
+        (0.5 * c, np.zeros(len(midpoints))), midpoints
+    )[-1]
+
+    # integrate marginalized group
+    unmarginalized_groups = list(
+        set(series.index.names) - set([marginal_group])
+    )
+    return series.groupby(level=unmarginalized_groups).apply(
+        integrate, marginal_group, leftmost_point, rightmost_point
     )
 
 
@@ -201,5 +234,3 @@ def print_errors(reference_df: pd.DataFrame, test_df: pd.DataFrame):
     # print out absolute l-inf error for DataFrame
     abs_linf_norm = residuals.abs().max().max()
     print(f"absolute l-inf norm: {abs_linf_norm}")
-
-
