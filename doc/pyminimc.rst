@@ -9,7 +9,7 @@ Submodules
 
    pyminimc.compression
    pyminimc.constants
-   pyminimc.io
+   pyminimc.estimator
    pyminimc.pdf
    pyminimc.plotting
    pyminimc.pod
