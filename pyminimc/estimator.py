@@ -198,3 +198,6 @@ class MiniMC(NonmultiplyingBinnedLeakageEstimator):
                 ]
             ),
         )
+
+    def plot(self, dependent_name: str):
+        super().plot(dependent_name, label="minimc")
