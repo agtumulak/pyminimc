@@ -80,42 +80,6 @@ def parse_file7(mf7_path: str):
         return df
 
 
-def marginalize(
-    series: pd.Series, marginal_group: str, boundaries: list[float]
-) -> pd.Series:
-    """
-    Marginalizes a multivariate PDF with proper handling of nonzero PDF values
-    near boundaries
-
-    Parameters
-    ----------
-    series:
-      The PDF to be marginalize
-    marginal_group:
-      MultiIndex level name for dimension to integrate over
-    boundaries:
-      The PDFs are assumed to be given at interior points of the axis to
-      marginalized. The boundaries specify where the PDF goes to zero.
-    """
-    leftmost_point, rightmost_point = boundaries
-    unmarginalized_groups = list(
-        set(series.index.names) - set([marginal_group])
-    )
-    return series.groupby(level=unmarginalized_groups).apply(
-        lambda series, marginal_group: np.trapz(
-            np.concatenate((np.array([0]), series, np.array([0]))),
-            np.concatenate(
-                (
-                    np.array([leftmost_point]),
-                    series.index.get_level_values(marginal_group),
-                    np.array([rightmost_point]),
-                )
-            ),
-        ),
-        marginal_group,
-    )
-
-
 def lin_log_cum_trapz(s):
     """
     Integrates a Series with trapezoid rule using linear in index and
