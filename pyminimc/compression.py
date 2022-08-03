@@ -4,15 +4,15 @@ from pyminimc import util
 from collections import OrderedDict
 from itertools import chain, product
 from scipy.interpolate import RegularGridInterpolator
-from typing import Literal
+from typing import Literal, Sequence
 
 
 def adaptive_coarsen(
-    true_dfs: list[pd.DataFrame],
-    coarse_dfs: list[pd.DataFrame],
+    true_dfs: Sequence[pd.DataFrame],
+    coarse_dfs: Sequence[pd.DataFrame],
     rel_frobenius_norm_tol: float = 1e-3,
     abs_linf_norm_tol: float = 1.0,
-) -> list[pd.DataFrame]:
+) -> Sequence[pd.DataFrame]:
     """
     Adaptively removes points from a list of DataFrames using a greedy
     algorithm that minimizes the global (frobenius) and local (linf) error
@@ -188,59 +188,52 @@ def adaptive_coarsen(
                         best_abs_linf_norm = abs_linf_norm
                         best_interped = interp_vals
                         best_interped_true_idxs = interp_true_idxs
-        if not best_idx is None:
-            subset_idx, axis_idx, coarse_idx = best_idx
-            # update coarse axes/array
-            keep_idx = np.delete(
-                np.arange(coarse_axess[subset_idx][axis_idx].size), coarse_idx
+        if best_idx is None:
+            break
+        subset_idx, axis_idx, coarse_idx = best_idx
+        # update coarse axes/array
+        keep_idx = np.delete(
+            np.arange(coarse_axess[subset_idx][axis_idx].size), coarse_idx
+        )
+        coarse_axess[subset_idx][axis_idx] = coarse_axess[subset_idx][axis_idx][
+            keep_idx
+        ]
+        coarse_arrays[subset_idx] = coarse_arrays[subset_idx].take(
+            keep_idx, axis=axis_idx
+        )
+        # update interp axes/array
+        # https://stackoverflow.com/a/42657219/5101335
+        idx = [slice(None)] * interp_arrays[subset_idx].ndim
+        idx[axis_idx] = best_interped_true_idxs
+        interp_arrays[subset_idx][tuple(idx)] = best_interped
+        # print diagnostics
+        diagnostics = OrderedDict()
+        diagnostics[
+            "fine idx".rjust(10)
+        ] = f"{coarse_true_idx_map[subset_idx][axis_idx][coarse_idx]:10}"
+        diagnostics[
+            "abs. l-inf norm residuals".rjust(27)
+        ] = f"{best_abs_linf_norm:27.8E}"
+        diagnostics[
+            "rel. frobenius norm residuals".rjust(31)
+        ] = f"{best_rel_frobenius_norm:31.8E}"
+        diagnostics[
+            "coarse axes shapes".rjust(70)
+        ] = f"{[coarse_array.shape for coarse_array in coarse_arrays]}".rjust(
+            70
+        )
+        if elapsed % 25 == 0:
+            hlines = "".join(
+                ("-" * len(s.strip())).rjust(len(s)) for s in diagnostics.keys()
             )
-            coarse_axess[subset_idx][axis_idx] = coarse_axess[subset_idx][
-                axis_idx
-            ][keep_idx]
-            coarse_arrays[subset_idx] = coarse_arrays[subset_idx].take(
-                keep_idx, axis=axis_idx
-            )
-            # update interp axes/array
-            # https://stackoverflow.com/a/42657219/5101335
-            idx = [slice(None)] * interp_arrays[subset_idx].ndim
-            idx[axis_idx] = best_interped_true_idxs
-            interp_arrays[subset_idx][tuple(idx)] = best_interped
-            # print diagnostics
-            diagnostics = OrderedDict()
-            diagnostics[
-                "fine idx".rjust(10)
-            ] = f"{coarse_true_idx_map[subset_idx][axis_idx][coarse_idx]:10}"
-            diagnostics[
-                "abs. l-inf norm residuals".rjust(27)
-            ] = f"{best_abs_linf_norm:27.8E}"
-            diagnostics[
-                "rel. frobenius norm residuals".rjust(31)
-            ] = f"{best_rel_frobenius_norm:31.8E}"
-            diagnostics[
-                "coarse axes shapes".rjust(70)
-            ] = f"{[coarse_array.shape for coarse_array in coarse_arrays]}".rjust(
-                70
-            )
-            if elapsed % 25 == 0:
-                hlines = "".join(
-                    ("-" * len(s.strip())).rjust(len(s))
-                    for s in diagnostics.keys()
-                )
-                headings = "".join(diagnostics.keys())
-                print("\n".join((hlines, headings, hlines)))
-            print("".join(diagnostics.values()))
-            elapsed += 1
-            # update mapping from coarse to true axes
-            coarse_true_idx_map[subset_idx][axis_idx] = coarse_true_idx_map[
-                subset_idx
-            ][axis_idx][keep_idx]
-        else:
-            user_input = input("Tolerance reached. Set new tolerance?: ")
-            try:
-                rel_frobenius_norm_tol = float(user_input)
-            except ValueError:
-                print("Not a float. Terminating adaptive coarsening.")
-                break
+            headings = "".join(diagnostics.keys())
+            print("\n".join((hlines, headings, hlines)))
+        print("".join(diagnostics.values()))
+        elapsed += 1
+        # update mapping from coarse to true axes
+        coarse_true_idx_map[subset_idx][axis_idx] = coarse_true_idx_map[
+            subset_idx
+        ][axis_idx][keep_idx]
     # return coarsened DataFrames
     coarse_dfs = [
         pd.DataFrame(
@@ -340,12 +333,44 @@ def interpolate_df(
     )
 
 
+def split(
+    full_df: pd.DataFrame, split_on: Literal["E", "beta"], splits: Sequence[int]
+) -> Sequence[pd.DataFrame]:
+    """
+    Splits a DataFrame along columns
+
+    Parameters
+    ----------
+    full_df
+        The full DataFrame which will be split
+    split_on
+        The name of the MultiIndex level for which split indices will be given
+    splits
+        Indices which serve as the leftmost index of each partition. The first
+        partition is implied to have index zero. Passing N splits will return
+        N+1 partitions.
+    """
+    boundaries = np.concatenate(
+        ([0.0], np.array(full_df.columns.unique(split_on)[splits]), [np.inf])
+    )
+    return [
+        full_df.loc[
+            :,
+            (left_boundary <= full_df.columns.get_level_values(split_on))
+            & (full_df.columns.get_level_values(split_on) < right_boundary),
+        ]
+        for left_boundary, right_boundary in zip(
+            boundaries[:-1], boundaries[1:]
+        )
+    ]
+
+
 def apply_approximations(
     true_df: pd.DataFrame,
     split_on: Literal["E", "beta"],
-    splits: list[int],
-    ranks: list[int],
-) -> list[pd.DataFrame]:
+    splits: Sequence[int],
+    ranks: Sequence[int],
+) -> Sequence[pd.DataFrame]:
     """
     Applies a sequence of approximations to a CDF DataFrame
 
@@ -360,43 +385,28 @@ def apply_approximations(
     ranks
         Rank of each subset when performing SVD
     """
-    # split DataFrame along columns at indices at selected level of MultiIndex
-    boundaries = np.concatenate(
-        ([0], true_df.columns.unique(split_on)[splits], [np.inf])
-    )
-    subsets = [
-        true_df.loc[
-            :,
-            (left_boundary <= true_df.columns.get_level_values(split_on))
-            & (true_df.columns.get_level_values(split_on) < right_boundary),
-        ]
-        for left_boundary, right_boundary in zip(
-            boundaries[:-1], boundaries[1:]
-        )
-    ]
+    subsets = split(true_df, split_on=split_on, splits=splits)
     # obtain low-rank approximations of each subset
     print("\nobtaining low-rank approximations...")
     truncated_subsets = [
         truncate(subset, rank) for subset, rank in zip(subsets, ranks)
     ]
-    truncated_df = pd.concat(truncated_subsets, axis="columns")
-    util.print_errors(true_df, truncated_df)
+    util.print_errors(true_df, pd.concat(truncated_subsets, axis="columns"))
     # remove nonmonotonic CDF points from each subset
     print("\nremoving nonmonotonic CDFs...")
     monotonic_subsets = [
         remove_nonmonotonic_cdfs(subset) for subset in truncated_subsets
     ]
-    monotonic_df = pd.concat(
-        [
-            interpolate_df(
-                monotonic_subset,
-                subset,
-            )
-            for monotonic_subset, subset in zip(monotonic_subsets, subsets)
-        ],
-        axis="columns",
+    util.print_errors(
+        true_df,
+        pd.concat(
+            [
+                interpolate_df(monotonic_subset, subset)
+                for monotonic_subset, subset in zip(monotonic_subsets, subsets)
+            ],
+            axis="columns",
+        ),
     )
-    util.print_errors(true_df, monotonic_df)
     # adaptively coarsen each subset
     print("\nadaptively coarsening...")
     coarsened_subsets = adaptive_coarsen(subsets, monotonic_subsets)
