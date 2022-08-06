@@ -42,43 +42,43 @@ class NonmultiplyingBinnedLeakageEstimator:
         self._N = N
         self._counts = counts
         self._boundaries = boundaries
-        # number of boundaries matches number of bins
+        # number of counts matches number of bins
         assert (
             np.prod([b.size - 1 for b in self._boundaries.values()])
             == counts.size
         )
 
-    def assert_axis_exists(self, axis_name: str):
-        assert axis_name in self._boundaries, (
-            f"Axis name '{axis_name}' "
+    def marginalize(self, unmarginalized_name: str):
+        # assert axis exists
+        assert unmarginalized_name in self._boundaries, (
+            f"Axis name '{unmarginalized_name}' "
             f"not found in [{', '.join(self._boundaries.keys())}]."
         )
-
-    def marginalize(self, marginalized_name: str):
-        self.assert_axis_exists(marginalized_name)
-        counts = self._counts.reshape(
-            [b.size - 1 for b in self._boundaries.values()]
+        # compute argument for reshape
+        shape = [b.size - 1 for b in self._boundaries.values()]
+        # compute argument for sum
+        sum_axes = tuple(
+            [
+                i
+                for i, name in enumerate(self._boundaries)
+                if name != unmarginalized_name
+            ]
         )
-        # get index that will be marginalized
-        marginalized_index = [
-            i
-            for i, k in enumerate(self._boundaries.keys())
-            if k == marginalized_name
-        ][0]
-        # sum counts along marginalized axis
-        self._counts = np.sum(counts, axis=marginalized_index)
-        # drop marginalized boundaries
-        del self._boundaries[marginalized_name]
+        # return a copy
+        return NonmultiplyingBinnedLeakageEstimator(
+            self._N,
+            np.sum(self._counts.reshape(shape), axis=sum_axes),
+            OrderedDict(
+                [(unmarginalized_name, self._boundaries[unmarginalized_name])]
+            ),
+        )
 
     def plot(self, dependent_name: str, **kwargs):
-        self.assert_axis_exists(dependent_name)
-        marginalized_names = set(self._boundaries) - set([dependent_name])
-        for marginalized_name in marginalized_names:
-            self.marginalize(marginalized_name)
+        marginalized = self.marginalize(dependent_name)
         # bind to shorter names
-        counts = self._counts
+        counts = marginalized._counts
         count_errs = np.sqrt(counts * (1 - counts) / self._N)
-        boundaries = self._boundaries[dependent_name]
+        boundaries = marginalized._boundaries[dependent_name]
         # plot as probability density function
         widths = np.diff(boundaries)
         midpoints = boundaries[:-1] + 0.5 * widths
