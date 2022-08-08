@@ -17,14 +17,18 @@ class MarginalizedNonmultiplyingBinnedLeakageEstimator:
         self._counts = counts
         self._boundaries = boundaries
 
-    def plot(self, **kwargs):
-        # bind to shorter names
+    def as_midpoint_density_pairs(
+        self,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         count_errs = np.sqrt(self._counts * (1 - self._counts) / self._N)
-        # plot as probability density function
         widths = np.diff(self._boundaries)
         midpoints = self._boundaries[:-1] + 0.5 * widths
         densities = self._counts / widths
         density_errs = count_errs / widths
+        return midpoints, densities, density_errs
+
+    def plot(self, **kwargs):
+        midpoints, densities, density_errs = self.as_midpoint_density_pairs()
         x_vals = np.concatenate(
             ([self._boundaries[0]], midpoints, [self._boundaries[-1]])
         )
@@ -34,6 +38,20 @@ class MarginalizedNonmultiplyingBinnedLeakageEstimator:
         y_upper = np.add(y_vals, y_err)
         plt.plot(x_vals, y_vals, **kwargs)
         plt.fill_between(x_vals, y_lower, y_upper, alpha=0.2)
+
+    def l2_error(self, other):
+        # bind to shorter names
+        _, self_densities, _ = self.as_midpoint_density_pairs()
+        _, other_densities, _ = other.as_midpoint_density_pairs()
+
+        def func(x):
+            # TODO: Figure out if x ever includes boundaries
+            return np.square(
+                self_densities[np.searchsorted(self._boundaries, x) - 1]
+                - other_densities[np.searchsorted(other._boundaries, x) - 1]
+            )
+
+        return quadrature(func, self._boundaries[0], self._boundaries[-1])
 
 
 class NonmultiplyingBinnedLeakageEstimator:
