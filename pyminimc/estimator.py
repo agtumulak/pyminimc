@@ -2,8 +2,38 @@
 Classes for representing estimator results
 """
 import numpy as np
+from scipy.integrate import quadrature
 from matplotlib import pyplot as plt
 from collections import OrderedDict
+
+
+class MarginalizedNonmultiplyingBinnedLeakageEstimator:
+    """
+    Like NonmultiplyingBinnedLeakageEstimator, but there is only one axis.
+    """
+
+    def __init__(self, N: int, counts: np.ndarray, boundaries: np.ndarray):
+        self._N = N
+        self._counts = counts
+        self._boundaries = boundaries
+
+    def plot(self, **kwargs):
+        # bind to shorter names
+        count_errs = np.sqrt(self._counts * (1 - self._counts) / self._N)
+        # plot as probability density function
+        widths = np.diff(self._boundaries)
+        midpoints = self._boundaries[:-1] + 0.5 * widths
+        densities = self._counts / widths
+        density_errs = count_errs / widths
+        x_vals = np.concatenate(
+            ([self._boundaries[0]], midpoints, [self._boundaries[-1]])
+        )
+        y_vals = np.concatenate((np.array([0]), densities, np.array([0])))
+        y_err = np.concatenate((np.array([0]), density_errs, np.array([0])))
+        y_lower = np.subtract(y_vals, y_err)
+        y_upper = np.add(y_vals, y_err)
+        plt.plot(x_vals, y_vals, **kwargs)
+        plt.fill_between(x_vals, y_lower, y_upper, alpha=0.2)
 
 
 class NonmultiplyingBinnedLeakageEstimator:
@@ -65,32 +95,11 @@ class NonmultiplyingBinnedLeakageEstimator:
             ]
         )
         # return a copy
-        return NonmultiplyingBinnedLeakageEstimator(
+        return MarginalizedNonmultiplyingBinnedLeakageEstimator(
             self._N,
             np.sum(self._counts.reshape(shape), axis=sum_axes),
-            OrderedDict(
-                [(unmarginalized_name, self._boundaries[unmarginalized_name])]
-            ),
+            self._boundaries[unmarginalized_name],
         )
-
-    def plot(self, dependent_name: str, **kwargs):
-        marginalized = self.marginalize(dependent_name)
-        # bind to shorter names
-        counts = marginalized._counts
-        count_errs = np.sqrt(counts * (1 - counts) / self._N)
-        boundaries = marginalized._boundaries[dependent_name]
-        # plot as probability density function
-        widths = np.diff(boundaries)
-        midpoints = boundaries[:-1] + 0.5 * widths
-        densities = counts / widths
-        density_errs = count_errs / widths
-        x_vals = np.concatenate(([boundaries[0]], midpoints, [boundaries[-1]]))
-        y_vals = np.concatenate((np.array([0]), densities, np.array([0])))
-        y_err = np.concatenate((np.array([0]), density_errs, np.array([0])))
-        y_lower = np.subtract(y_vals, y_err)
-        y_upper = np.add(y_vals, y_err)
-        plt.plot(x_vals, y_vals, **kwargs)
-        plt.fill_between(x_vals, y_lower, y_upper, alpha=0.2)
 
 
 class MCNP(NonmultiplyingBinnedLeakageEstimator):
@@ -143,7 +152,7 @@ class MCNP(NonmultiplyingBinnedLeakageEstimator):
         )
 
     def plot(self, dependent_name: str):
-        super().plot(dependent_name, label="mcnp")
+        super().marginalize(dependent_name).plot(label="mcnp")
 
 
 class MiniMC(NonmultiplyingBinnedLeakageEstimator):
@@ -200,4 +209,4 @@ class MiniMC(NonmultiplyingBinnedLeakageEstimator):
         )
 
     def plot(self, dependent_name: str):
-        super().plot(dependent_name, label="minimc")
+        super().marginalize(dependent_name).plot(label="minimc")
