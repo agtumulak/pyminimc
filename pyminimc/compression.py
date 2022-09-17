@@ -32,8 +32,6 @@ def adaptive_coarsen(
     abs_linf_norm_tol
         Maximum allowed absolute l-infinity norm of residuals across all
         DataFrames before coarsening stops.
-    plotting
-        Plot visualization of removed gridpoints
 
     Returns
     -------
