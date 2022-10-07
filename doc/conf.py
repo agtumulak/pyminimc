@@ -23,7 +23,9 @@ copyright = "2022, Aaron G. Tumulak"
 author = "Aaron G. Tumulak"
 
 # The full version, including alpha/beta/rc tags
-release = "0.4.0"
+# https://packaging.python.org/en/latest/guides/single-sourcing-package-version/
+import pyminimc
+release = pyminimc.__version__
 
 
 # -- General configuration ---------------------------------------------------
