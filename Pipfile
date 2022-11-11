@@ -13,9 +13,10 @@ sphinx = "*"
 tqdm = "*"
 furo = "*"
 ipdb = "*"
-tables = "*"
+tables = {editable = true, ref = "v3.7.0", git = "https://github.com/PyTables/PyTables.git"}
 
 [dev-packages]
 
 [requires]
-python_version = "3.10"
+python_version = "3.11"
+python_full_version = "3.11.0"
