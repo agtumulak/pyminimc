@@ -27,7 +27,7 @@ def parse_file7(mf7_path: str):
     with open(mf7_path, mode="r") as sab_file:
         # skip headers
         while True:
-            if sab_file.readline().endswith("1 7  4\n"):
+            if sab_file.readline()[69:75] == "1 7  4":
                 break
         # skip to relevant part
         for _ in range(4):
