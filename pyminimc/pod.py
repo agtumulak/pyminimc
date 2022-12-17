@@ -204,7 +204,9 @@ def beta_functional_expansion(
     print(
         f"RMSE: {np.sqrt(((beta_df_reconstructed - beta_df)**2).mean().mean())}"
     )
-    is_monotonic = beta_df_reconstructed.apply(lambda s: s.is_monotonic)
+    is_monotonic = beta_df_reconstructed.apply(
+        lambda s: s.is_monotonic_increasing
+    )
     print(
         f"Of {Es.size} incident energies and {df_Ts.size} target "
         f"temperatures, {is_monotonic.sum()} of {is_monotonic.size} "
@@ -348,7 +350,9 @@ def alpha_functional_expansion(sab_df, selected_betas, n_cdfs=1000, order=None):
         f"RMSE: {np.sqrt(((alpha_df_reconstructed - alpha_df_pod_form)**2).mean().mean())}"
     )
     # check that CDFS are monotonic for certain T values
-    is_monotonic = alpha_df_reconstructed.apply(lambda s: s.is_monotonic)
+    is_monotonic = alpha_df_reconstructed.apply(
+        lambda s: s.is_monotonic_increasing
+    )
     print(
         f"{is_monotonic.sum()} of {is_monotonic.size} "
         f"({is_monotonic.sum() / is_monotonic.size * 100}%) have "
