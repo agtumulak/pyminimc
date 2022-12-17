@@ -96,15 +96,28 @@ def lin_log_cum_trapz(s):
        Series to integrate
     """
     x, y = s.index, s.values
-    numerators = y[1:] - y[:-1]
-    denominators = np.log(y[1:]) - np.log(y[:-1])
-    # https://stackoverflow.com/a/37977222/5101335
-    ratios = np.divide(
-        numerators, denominators, out=numerators, where=denominators != 0
+    numerators = (x[1:] - x[:-1]) * (y[1:] - y[:-1])
+    log_y = np.log(y, where=y != 0)
+    denominators = log_y[1:] - log_y[:-1]
+    # if either value of y is zero, the logarithmic interpolated value is zero
+    # throughout the interpolation range
+    nonzero_bin_endpoints = np.fromiter(
+        (
+            y_left != 0 and y_right != 0
+            for y_left, y_right in zip(y[:-1], y[1:])
+        ),
+        dtype=bool,
     )
-    ratios = np.nan_to_num(ratios)
+    # each element is the result of integrating over each bin
+    integrals = np.zeros(len(numerators))
+    np.divide(
+        numerators,
+        denominators,
+        out=integrals,
+        where=nonzero_bin_endpoints & (denominators != 0),
+    )
     return pd.Series(
-        np.concatenate(([0], np.cumsum(ratios * (x[1:] - x[:-1])))),
+        np.concatenate(([0], np.cumsum(integrals))),
         index=s.index,
     )
 
