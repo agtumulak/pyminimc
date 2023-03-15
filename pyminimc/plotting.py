@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.backend_bases import MouseButton
-from matplotlib import cm
+from matplotlib import cm, colors
 
 
 def plot_pdf(s):
@@ -229,3 +229,70 @@ def inspect_visually(
     plt.show()
 
 
+def plot_sensitivities(
+    mean: np.ndarray,
+    stddev: np.ndarray,
+    partitions: list[dict[str, pd.DataFrame]],
+):
+    """
+    Plots the sensitivity with respect to each TNSL parameter perturbed.
+
+    Parameters
+    ----------
+    mean
+        Flattened array of sensitivities with respect to each TNSL parameter
+        perturbed
+    stddev
+        Corresponding array of standard deviations for each sensitivity
+    partitions
+        A sequence of OrderedDict. Each OrderedDict corresponds to a partition.
+        An OrderedDict contains three DataFrames. A set of three DataFrames
+        corresponds to a singular value decomposition of TNSL data. Data from
+        each partition is only used for matrix dimensions and axis labels. The
+        coefficients themselves are unused.
+    """
+    sensitivities = [{} for _ in partitions]
+    matrix_order = ("S", "U", "V")
+    for partition_idx, partition in enumerate(partitions):
+        # compute begin index of partition
+        partition_offset = sum(
+            sum(partition[matrix].size for matrix in partition)
+            for partition in partitions[:partition_idx]
+        )
+        for matrix_idx, matrix in enumerate(matrix_order):
+            # compute begin index of matrix
+            matrix_offset = sum(
+                partition[m].size for m in matrix_order[:matrix_idx]
+            )
+            df = partition[matrix]
+            begin_idx = partition_offset + matrix_offset
+            end_idx = begin_idx + df.size
+            sensitivities[partition_idx][matrix] = pd.DataFrame(
+                {
+                    "mean": mean[begin_idx:end_idx],
+                    "stddev": stddev[begin_idx:end_idx],
+                },
+                index=df.index,
+            )
+    # use same colorbar for all matrices
+    # https://matplotlib.org/stable/tutorials/colors/colormapnorms.html
+    max_abs = np.max(np.abs(mean))
+    norm = colors.SymLogNorm(linthresh=1e-5, vmin=-max_abs, vmax=+max_abs)
+    # plot each matrix
+    fig, axes = plt.subplots(
+        nrows=len(sensitivities), ncols=len(matrix_order), squeeze=False
+    )
+    for partition_idx, axes_row in enumerate(axes):
+        for matrix, axis in zip(matrix_order, axes_row):
+            df = sensitivities[partition_idx][matrix]["mean"]
+            # preprocess matrix depending on type
+            if matrix == "S":
+                df = pd.DataFrame(np.diag(df), index=df.index, columns=df.index)
+            else:
+                df = df.unstack()
+            if matrix == "V":
+                df = df.T
+            # plot matrix
+            im = axis.imshow(df, norm=norm, cmap="RdBu")
+    clb = fig.colorbar(im, ax=axes.ravel().tolist())
+    plt.show()
