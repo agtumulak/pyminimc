@@ -144,8 +144,7 @@ def beta_functional_expansion(
     Returns
     -------
     pd.DataFrame
-        Expansion coefficients in temperature for beta given a given set of
-        incident energies and CDF values.
+        Proper orthogonal decomposition matrices for sampling beta
 
     Todo
     ----
@@ -274,6 +273,9 @@ def alpha_functional_expansion(sab_df, selected_betas, n_cdfs=1000, order=None):
         )
 
     common_beta_sab_df = sab_df.groupby("T").apply(common_beta_grid)
+    # handle single temperature case
+    if isinstance(common_beta_sab_df, pd.DataFrame):
+        common_beta_sab_df = common_beta_sab_df.stack("beta").stack("alpha")
     # alpha grids do not have to match across T-beta pairs, but they do have to
     # have the same minimum and maximum values
     print("computing alpha CDFs...")
