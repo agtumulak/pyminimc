@@ -10,9 +10,11 @@ from functools import partial
 from tqdm.contrib import concurrent
 
 
-def interpolate_quadratic(cdf_s, cutoff, offset, f0=None):
+def interpolate_quadratic(
+    cdf_s: pd.Series, cutoff: float, offset: float, f0: float | None = None
+):
     """
-    Compute PDF
+    Returns a set of points using piecewise quadratic interpolation
     """
     cdf_s.loc[0.0] = offset
     cdf_s.loc[1.0] = cutoff
@@ -35,7 +37,7 @@ def interpolate_quadratic(cdf_s, cutoff, offset, f0=None):
 
 
 def compute_pdf(
-    cdf_df: pd.DataFrame,
+    cdf_df: pd.DataFrame | pd.Series,
     cutoff: float,
     offset: float,
     f0: float | None = None,
