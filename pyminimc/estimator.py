@@ -37,7 +37,7 @@ class MarginalizedNonmultiplyingBinnedLeakageEstimator:
         y_lower = np.subtract(y_vals, y_err)
         y_upper = np.add(y_vals, y_err)
         plt.plot(x_vals, y_vals, **kwargs)
-        plt.fill_between(x_vals, y_lower, y_upper, alpha=0.2)
+        plt.fill_between(x_vals, y_lower, y_upper, linewidth=0, alpha=0.2, color='k')
 
     def l2_error(self, other):
         # bind to shorter names
