@@ -91,7 +91,7 @@ def compute_pdf(
     )
 
 
-def remove_index_and_compute_quadraticness(
+def remove_index_and_compute_nonmonoticity(
     cdf_df: pd.DataFrame,
     cutoff: float,
     offset: float,
@@ -112,17 +112,13 @@ def remove_index_and_compute_quadraticness(
     order
         Expansion order in Proper Orthogonal Decomposition
     """
-    cdf_df = truncate(cdf_df.drop(index=drop), order)
-    pdf_df = compute_pdf(cdf_df, cutoff, offset)
-    return (
-        ((-1 / 12 * pdf_df.diff() * (cdf_df.diff()) ** 2) ** 2)
-        .iloc[2:]
-        .sum()
-        .sum()
-    )
+    truncated_df = truncate(cdf_df.drop(index=drop), order)
+    truncated_df.loc[0.0] = offset
+    truncated_df.loc[1.0] = cutoff
+    truncated_df.sort_index()
+    return (truncated_df.diff() < 0).sum().sum()
 
 
-@iex
 def partitionless_adaptive_coarsen(
     true_df: pd.DataFrame, cutoff: float, order: int = 100
 ):
@@ -137,13 +133,14 @@ def partitionless_adaptive_coarsen(
     # cutoff = np.log(cutoff + offset)
     # true_df = np.log(true_df + offset)
     # offset = np.log(offset)
+    true_df = true_df.iloc[:, :4500]
     offset = 0.0
     coarse_df = true_df.copy()
     counter = 0
     while True:
-        quadraticnesses = concurrent.process_map(
+        nonmonotonic_counts = concurrent.process_map(
             partial(
-                remove_index_and_compute_quadraticness,
+                remove_index_and_compute_nonmonoticity,
                 coarse_df,
                 cutoff,
                 offset,
@@ -152,16 +149,16 @@ def partitionless_adaptive_coarsen(
             coarse_df.index,
             max_workers=8,
         )
-        drop = coarse_df.index[np.argmin(quadraticnesses)]
+        drop = coarse_df.index[np.argmax(nonmonotonic_counts)]
         coarse_df = coarse_df.drop(index=drop)
         truncated_df = truncate(coarse_df, order)
         pdf_df = compute_pdf(truncated_df, cutoff, offset)
         worst_col_idx = pdf_df[pdf_df < 0].iloc[1:].abs().max().idxmax()
         negative_pdf_count = (~pd.isna(pdf_df[pdf_df < 0].iloc[1:])).sum().sum()
-
+        coarse_df.to_hdf("coarse_df.hdf5", "pandas")
         if negative_pdf_count == 0:
             break
-        if counter % 10 == 0:
+        if counter % 1 == 0:
             # get each level of columns
             betas = pdf_df.columns.get_level_values("beta").unique()
             Ts = pdf_df.columns.get_level_values("T").unique()
@@ -195,6 +192,7 @@ def partitionless_adaptive_coarsen(
                     marker="+",
                     color=f"C{i}",
                 )
+            plt.ylim(bottom=0.0, top=1.0)
             plt.legend()
             # plt.show()
             plt.pause(0.1)
@@ -204,10 +202,6 @@ def partitionless_adaptive_coarsen(
             f"Removing CDF: {drop:.5f}, Negative PDFs: "
             f"{negative_pdf_count} of {pdf_df.size}"
         )
-    import ipdb
-
-    ipdb.set_trace()
-    pass
     plt.clf()
     plt.plot(*interpolate_quadratic(truncated_df.iloc[:, 0], cutoff, offset))
     plt.plot(*interpolate_quadratic(truncated_df.iloc[:, 9000], cutoff, offset))
