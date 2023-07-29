@@ -277,7 +277,7 @@ def plot_sensitivities(
     # use same colorbar for all matrices
     # https://matplotlib.org/stable/tutorials/colors/colormapnorms.html
     max_abs = np.max(np.abs(mean))
-    norm = colors.SymLogNorm(linthresh=1e-5, vmin=-max_abs, vmax=+max_abs)
+    norm = colors.SymLogNorm(linthresh=1e-8, vmin=-max_abs, vmax=+max_abs)
     # plot each matrix
     fig, axes = plt.subplots(
         nrows=len(sensitivities), ncols=len(matrix_order), squeeze=False
