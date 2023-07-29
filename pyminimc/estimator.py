@@ -34,8 +34,8 @@ class MarginalizedNonmultiplyingBinnedLeakageEstimator:
         )
         y_vals = np.concatenate((np.array([0]), densities, np.array([0])))
         y_err = np.concatenate((np.array([0]), density_errs, np.array([0])))
-        y_lower = np.subtract(y_vals, y_err)
-        y_upper = np.add(y_vals, y_err)
+        y_lower = np.subtract(y_vals, y_err * 3)
+        y_upper = np.add(y_vals, y_err * 3)
         plt.plot(x_vals, y_vals, **kwargs)
         plt.fill_between(x_vals, y_lower, y_upper, linewidth=0, alpha=0.2, color='k')
 
