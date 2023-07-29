@@ -6,42 +6,27 @@ from itertools import chain, product
 from scipy.interpolate import RegularGridInterpolator
 from typing import Literal, Sequence
 from matplotlib import pyplot as plt
-from functools import partial
-from tqdm.contrib import concurrent
 
 
-def interpolate_quadratic(
-    cdf_s: pd.Series, cutoff: float, offset: float, f0: float | None = None
-):
+def interpolate_quadratic(cdf_s: pd.Series, fs_s: pd.Series):
     """
     Returns a set of points using piecewise quadratic interpolation
     """
-    cdf_s.loc[0.0] = offset
-    cdf_s.loc[1.0] = cutoff
-    cdf_s = cdf_s.sort_index()
-    pdf_s = compute_pdf(cdf_s, cutoff, offset, f0=f0)
     # express everything in terms of x and y values
-    x_bounds = cdf_s.values
-    x = np.linspace(x_bounds[0], x_bounds[-2], 10000)
+    x_bounds = np.array(cdf_s.values)
+    x = np.linspace(x_bounds[0], x_bounds[-1], 1000000)[:-1]
     x_hi_i = np.searchsorted(x_bounds, x, side="right")
     x_hi = x_bounds[x_hi_i]
     x_lo = x_bounds[x_hi_i - 1]
-    dydx_hi = pdf_s.values[x_hi_i]
-    dydx_lo = pdf_s.values[x_hi_i - 1]
+    f_hi = fs_s.values[x_hi_i]
+    f_lo = fs_s.values[x_hi_i - 1]
     r = (x - x_lo) / (x_hi - x_lo)
     y_lo = cdf_s.index.values[x_hi_i - 1]
-    interped = y_lo + (x_hi - x_lo) * (
-        dydx_lo * r + 0.5 * (dydx_hi - dydx_lo) * r * r
-    )
+    interped = y_lo + (x_hi - x_lo) * (f_lo * r + 0.5 * (f_hi - f_lo) * r * r)
     return x, interped
 
 
-def compute_pdf(
-    cdf_df: pd.DataFrame | pd.Series,
-    cutoff: float,
-    offset: float,
-    f0: float | None = None,
-) -> pd.DataFrame:
+def compute_pdf(cdf_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Returns an optimal set of PDFs for each CDF point by minimizing the area
     between quadratic and linear interpolation.
@@ -50,167 +35,108 @@ def compute_pdf(
     ----------
     cdf_df
         Values evaluated on a grid of CDF points. Each column represents a CDF.
-    cutoff
-        The value at CDF = 1
-    offset
-        The value at CDF = 0
-    f0
-        Skip computation of optimal PDF and manually sets the first PDF value
     """
+    # compute optimal derivative at first (user-provided) datapoint
     cdf_df = cdf_df.copy()
-    # add endpoints
-    cdf_df.loc[0.0] = offset
-    cdf_df.loc[1.0] = cutoff
+    cdf_df.loc[0.0] = np.nan  # to be deterimined later
+    cdf_df.loc[1.0] = np.nan
     cdf_df = cdf_df.sort_index()
-    # compute terms giving the difference between subsequent PDFs
-    cs = 2 / cdf_df.diff().iloc[1:].div(np.diff(cdf_df.index), axis="rows")
-    # number of PDF values that depend on f0 (except f0 itself)
-    N = cs.shape[0]
-    if f0 is None:
-        width = cdf_df.diff().iloc[1:] ** 4
-        numerator = -(
-            (
-                2
-                * cs.multiply(
-                    [(-1) ** n for n in range(1, N + 1)], axis="rows"
-                ).cumsum()
-                - cs.multiply([(-1) ** n for n in range(1, N + 1)], axis="rows")
-            )
-            * width
-        )
-        denominator = 2 * width
-        # ignore the first segment from loss calculation since we are free to
-        # choose either root of the first quadratic curve as a starting point
-        f0 = numerator.iloc[1:].sum() / denominator.iloc[1:].sum()
-    cs.loc[0] = f0
-    cs = cs.sort_index()
-    return (
-        cs.multiply([(-1) ** n for n in range(N + 1)], axis="rows")
-        .cumsum()
-        .multiply([(-1) ** n for n in range(N + 1)], axis="rows")
+    delta_ys = np.concatenate([[0], np.diff(cdf_df.index)])
+    delta_xs = cdf_df.diff()
+    cs = pd.DataFrame(2 * (delta_ys / delta_xs.T).T)
+    signed_cs = (cs.T * [(-1) ** m for m in range(len(cs))]).T
+    cumsum_signed_cs = signed_cs.cumsum()
+    delta_xs_pow4 = delta_xs**4
+    numerator_factors = 2 * cumsum_signed_cs - signed_cs
+    numerator_terms = numerator_factors * delta_xs_pow4
+    cs.iloc[0] = 0.0
+    cs.iloc[1] = (
+        0.5 * numerator_terms.iloc[2:].sum() / delta_xs_pow4.iloc[2:].sum()
     )
+    cumsum_signed_cs.iloc[1] = 0
+    cumsum_signed_cs.iloc[1:] -= cs.iloc[1]
+    fs = (
+        cumsum_signed_cs.T * [(-1) ** m for m in range(len(cumsum_signed_cs))]
+    ).T
+    # compute intercepts at boundaries
+    cdf_df.loc[1.0] = cdf_df.iloc[-2] + 2 * delta_ys[-1] / fs.iloc[-2]
+    cdf_df.loc[0.0] = cdf_df.iloc[1] - 2 * delta_ys[1] / fs.iloc[1]
+    cdf_df = cdf_df.sort_index()
+    fs.loc[1.0] = 0.0
+    fs.loc[0.0] = 0.0
+    fs = fs.sort_index()
+    return fs, cdf_df
 
 
-def remove_index_and_compute_nonmonoticity(
-    cdf_df: pd.DataFrame,
-    cutoff: float,
-    offset: float,
-    order: int,
-    drop: pd.Index,
-) -> float:
-    """
-    Helper function for choosing optimal index to drop
-
-    Parameters
-    ----------
-    cdf_df
-        Values evaluated on a grid of CDF points. Each column represents a CDF.
-    cutoff
-        The value at CDF = 1
-    offset
-        The value at CDF = 0
-    order
-        Expansion order in Proper Orthogonal Decomposition
-    """
-    truncated_df = truncate(cdf_df.drop(index=drop), order)
-    truncated_df.loc[0.0] = offset
-    truncated_df.loc[1.0] = cutoff
-    truncated_df.sort_index()
-    return (truncated_df.diff() < 0).sum().sum()
-
-
-def partitionless_adaptive_coarsen(
-    true_df: pd.DataFrame, cutoff: float, order: int = 100
-):
+def partitionless_coarsen(true_df: pd.DataFrame, rank: int = 100, log=False):
     """
     Adaptively removes points from a single DataFrame using quadratic
     interpolation in CDF
 
     Parameters
     ----------
+    true_df
+        Reference DataFrame to be coarsened
+    rank
+        Low-rank approximation rank
+    log
+        Store the logarithm of values, useful for avoiding negative
+        probabilities in low rank approximations
     """
-    # offset = 1e-6
-    # cutoff = np.log(cutoff + offset)
-    # true_df = np.log(true_df + offset)
-    # offset = np.log(offset)
-    true_df = true_df.iloc[:, :4500]
-    offset = 0.0
-    coarse_df = true_df.copy()
-    counter = 0
-    while True:
-        nonmonotonic_counts = concurrent.process_map(
-            partial(
-                remove_index_and_compute_nonmonoticity,
-                coarse_df,
-                cutoff,
-                offset,
-                order,
-            ),
-            coarse_df.index,
-            max_workers=8,
-        )
-        drop = coarse_df.index[np.argmax(nonmonotonic_counts)]
-        coarse_df = coarse_df.drop(index=drop)
-        truncated_df = truncate(coarse_df, order)
-        pdf_df = compute_pdf(truncated_df, cutoff, offset)
-        worst_col_idx = pdf_df[pdf_df < 0].iloc[1:].abs().max().idxmax()
-        negative_pdf_count = (~pd.isna(pdf_df[pdf_df < 0].iloc[1:])).sum().sum()
-        coarse_df.to_hdf("coarse_df.hdf5", "pandas")
-        if negative_pdf_count == 0:
-            break
-        if counter % 1 == 0:
-            # get each level of columns
-            betas = pdf_df.columns.get_level_values("beta").unique()
-            Ts = pdf_df.columns.get_level_values("T").unique()
-            # choose points at first, middle, and last value of each level
-            representative_idxs = [
-                (beta, T)
-                for beta in betas[[0, betas.size // 2, -1]]
-                for T in Ts[[0, Ts.size // 2, -1]]
-            ]
-            # add worst value
-            representative_idxs.append(worst_col_idx)
-            # plot
-            plt.clf()
-            for i, idx in enumerate(representative_idxs):
-                plt.plot(
-                    *interpolate_quadratic(
-                        truncated_df.loc[:, idx], cutoff, offset
-                    ),
-                    label=f"$\\beta$={idx[0]:.2e}, T={idx[1]} K",
-                    color=f"C{i}",
-                )
-                plt.scatter(
-                    true_df.loc[:, idx].values,
-                    true_df.index,
-                    marker="x",
-                    color=f"C{i}",
-                )
-                plt.scatter(
-                    coarse_df.loc[:, idx].values,
-                    coarse_df.index,
-                    marker="+",
-                    color=f"C{i}",
-                )
-            plt.ylim(bottom=0.0, top=1.0)
-            plt.legend()
-            # plt.show()
-            plt.pause(0.1)
-        counter += 1
-        # remove worst beta/T pair
-        print(
-            f"Removing CDF: {drop:.5f}, Negative PDFs: "
-            f"{negative_pdf_count} of {pdf_df.size}"
-        )
-    plt.clf()
-    plt.plot(*interpolate_quadratic(truncated_df.iloc[:, 0], cutoff, offset))
-    plt.plot(*interpolate_quadratic(truncated_df.iloc[:, 9000], cutoff, offset))
-    plt.plot(*interpolate_quadratic(truncated_df.iloc[:, -1], cutoff, offset))
-    plt.scatter(true_df.iloc[:, 0].values, true_df.index, color="k")
-    plt.scatter(true_df.iloc[:, 9000].values, true_df.index, color="k")
-    plt.scatter(true_df.iloc[:, -1].values, true_df.index, color="k")
-    plt.show()
-    coarse_df.to_hdf("coarse_df.hdf5", "pandas")
+    # choose grid
+    cdf_grid = true_df.index
+    coarse_cdf_grid = cdf_grid[
+        np.round(np.linspace(0, cdf_grid.size - 1, 21)).astype(int)
+    ]
+    beta_grid = true_df.columns.get_level_values("beta").unique()
+    coarse_beta_grid = beta_grid[
+        np.round(np.linspace(0, beta_grid.size - 1, 20)).astype(int)
+    ]
+    T_grid = true_df.columns.get_level_values("T").unique()
+    coarse_T_grid = T_grid
+    coarse_df = true_df.loc[
+        coarse_cdf_grid,
+        pd.MultiIndex.from_product([coarse_beta_grid, coarse_T_grid]),
+    ]
+    # low rank approximation
+    truncated_df = pd.DataFrame(
+        np.exp(truncate(np.log(coarse_df), rank=rank))
+        if log
+        else truncate(coarse_df, rank=rank)
+    )
+    fs, truncated_df = compute_pdf(truncated_df)
+    negative_pdf_count = (fs < 0).sum().sum()
+    decreasing_cdf_count = (truncated_df.diff().iloc[1:] < 0).sum().sum()
+    print(
+        f"negative PDFs: {negative_pdf_count}, decreasing CDFs: {decreasing_cdf_count}"
+    )
+    # inspect approximated dataset
+    for beta in coarse_beta_grid[::2]:
+        for T in coarse_T_grid[::3]:
+            idx = (beta, T)
+            plt.plot(
+                *interpolate_quadratic(truncated_df[idx], fs[idx]),
+            )
+            plt.scatter(truncated_df[idx].values, truncated_df.index)
+            plt.plot(true_df[idx], true_df.index, linestyle=":")
+            plt.title(f"beta: {beta}, T: {T}")
+            plt.show()
+    # save to DataFrame
+    U_df, S_df, V_df = util.to_svd_dfs(
+        np.log(coarse_df) if log else coarse_df, order=rank
+    )
+    U_df.to_hdf(
+        "/Users/atumulak/Developer/minimc/data/tnsl/partitionless/alpha_CDF.hdf5",
+        "pandas",
+    )
+    S_df.to_hdf(
+        "/Users/atumulak/Developer/minimc/data/tnsl/partitionless/alpha_S.hdf5",
+        "pandas",
+    )
+    V_df.to_hdf(
+        "/Users/atumulak/Developer/minimc/data/tnsl/partitionless/alpha_beta_T.hdf5",
+        "pandas",
+    )
 
 
 def adaptive_coarsen(
