@@ -5,6 +5,7 @@ Plotting utilities
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scipy as sp
 from matplotlib.backend_bases import MouseButton
 from matplotlib import cm, colors
 
@@ -296,3 +297,57 @@ def plot_sensitivities(
             im = axis.imshow(df, norm=norm, cmap="RdBu")
     clb = fig.colorbar(im, ax=axes.ravel().tolist())
     plt.show()
+
+
+def interpolate_monotonic_cubic(
+    coarse_x: np.ndarray, coarse_y: np.ndarray, N=10000, m=2
+):
+    """
+    Returns datapoints and derivatgive using monotonic cubic Hermite splines
+
+    Monoticity is ensured using method by J. Butland
+
+    Parameters
+    ----------
+    coarse_x
+        x-coordinates of the datapoints
+    coarse_y
+        y-coordinates of the datapoints
+    N
+        Number of uniformly spaced points to evaluate interpolated value at
+    m
+        Parameter in modified Butland formula by F. N. Fritsch and J. Butland
+
+    Returns
+    ----------
+    Interpolated values
+    """
+    # augment endpoints so that derivative at endpoints matches linear slope
+    coarse_x = np.concatenate(
+        [
+            [2 * coarse_x[0] - coarse_x[1]],
+            coarse_x,
+            [2 * coarse_x[-1] - coarse_x[-2]],
+        ]
+    )
+    coarse_y = np.concatenate(
+        [
+            [2 * coarse_y[0] - coarse_y[1]],
+            coarse_y,
+            [2 * coarse_y[-1] - coarse_y[-2]],
+        ]
+    )
+    secants = np.diff(coarse_y) / np.diff(coarse_x)
+    s = secants[:-1]
+    t = secants[1:]
+    u = np.minimum(np.abs(s), np.abs(t))
+    v = np.maximum(np.abs(s), np.abs(t))
+    r = u / v
+    m = m
+    G = np.sign(s) * m * u / (1 + (m - 1) * r)
+    G[s * t <= 0] = 0
+    interped = sp.interpolate.CubicHermiteSpline(
+        coarse_x[1:-1], coarse_y[1:-1], G
+    )
+    fine_x = np.linspace(coarse_x[1], coarse_x[-2], N)
+    return fine_x, interped(fine_x), interped.derivative()(fine_x)
