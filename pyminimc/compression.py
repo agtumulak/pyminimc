@@ -5,7 +5,6 @@ from collections import OrderedDict
 from itertools import chain, product
 from scipy.interpolate import RegularGridInterpolator
 from typing import Literal, Sequence
-from matplotlib import pyplot as plt
 
 
 def interpolate_quadratic(cdf_s: pd.Series, fs_s: pd.Series):
@@ -66,77 +65,6 @@ def compute_pdf(cdf_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     fs.loc[0.0] = 0.0
     fs = fs.sort_index()
     return fs, cdf_df
-
-
-def partitionless_coarsen(true_df: pd.DataFrame, rank: int = 100, log=False):
-    """
-    Adaptively removes points from a single DataFrame using quadratic
-    interpolation in CDF
-
-    Parameters
-    ----------
-    true_df
-        Reference DataFrame to be coarsened
-    rank
-        Low-rank approximation rank
-    log
-        Store the logarithm of values, useful for avoiding negative
-        probabilities in low rank approximations
-    """
-    # choose grid
-    cdf_grid = true_df.index
-    coarse_cdf_grid = cdf_grid[
-        np.round(np.linspace(0, cdf_grid.size - 1, 21)).astype(int)
-    ]
-    beta_grid = true_df.columns.get_level_values("beta").unique()
-    coarse_beta_grid = beta_grid[
-        np.round(np.linspace(0, beta_grid.size - 1, 20)).astype(int)
-    ]
-    T_grid = true_df.columns.get_level_values("T").unique()
-    coarse_T_grid = T_grid
-    coarse_df = true_df.loc[
-        coarse_cdf_grid,
-        pd.MultiIndex.from_product([coarse_beta_grid, coarse_T_grid]),
-    ]
-    # low rank approximation
-    truncated_df = pd.DataFrame(
-        np.exp(truncate(np.log(coarse_df), rank=rank))
-        if log
-        else truncate(coarse_df, rank=rank)
-    )
-    fs, truncated_df = compute_pdf(truncated_df)
-    negative_pdf_count = (fs < 0).sum().sum()
-    decreasing_cdf_count = (truncated_df.diff().iloc[1:] < 0).sum().sum()
-    print(
-        f"negative PDFs: {negative_pdf_count}, decreasing CDFs: {decreasing_cdf_count}"
-    )
-    # inspect approximated dataset
-    for beta in coarse_beta_grid[::2]:
-        for T in coarse_T_grid[::3]:
-            idx = (beta, T)
-            plt.plot(
-                *interpolate_quadratic(truncated_df[idx], fs[idx]),
-            )
-            plt.scatter(truncated_df[idx].values, truncated_df.index)
-            plt.plot(true_df[idx], true_df.index, linestyle=":")
-            plt.title(f"beta: {beta}, T: {T}")
-            plt.show()
-    # save to DataFrame
-    U_df, S_df, V_df = util.to_svd_dfs(
-        np.log(coarse_df) if log else coarse_df, order=rank
-    )
-    U_df.to_hdf(
-        "/Users/atumulak/Developer/minimc/data/tnsl/partitionless/alpha_CDF.hdf5",
-        "pandas",
-    )
-    S_df.to_hdf(
-        "/Users/atumulak/Developer/minimc/data/tnsl/partitionless/alpha_S.hdf5",
-        "pandas",
-    )
-    V_df.to_hdf(
-        "/Users/atumulak/Developer/minimc/data/tnsl/partitionless/alpha_beta_T.hdf5",
-        "pandas",
-    )
 
 
 def adaptive_coarsen(
@@ -461,38 +389,6 @@ def interpolate_df(
         .unstack()
         .unstack()
     )
-
-
-def split(
-    full_df: pd.DataFrame, split_on: Literal["E", "beta"], splits: Sequence[int]
-) -> Sequence[pd.DataFrame]:
-    """
-    Splits a DataFrame along columns
-
-    Parameters
-    ----------
-    full_df
-        The full DataFrame which will be split
-    split_on
-        The name of the MultiIndex level for which split indices will be given
-    splits
-        Indices which serve as the leftmost index of each partition. The first
-        partition is implied to have index zero. Passing N splits will return
-        N+1 partitions.
-    """
-    boundaries = np.concatenate(
-        ([0.0], np.array(full_df.columns.unique(split_on)[splits]), [np.inf])
-    )
-    return [
-        full_df.loc[
-            :,
-            (left_boundary <= full_df.columns.get_level_values(split_on))
-            & (full_df.columns.get_level_values(split_on) < right_boundary),
-        ]
-        for left_boundary, right_boundary in zip(
-            boundaries[:-1], boundaries[1:]
-        )
-    ]
 
 
 def apply_approximations(
