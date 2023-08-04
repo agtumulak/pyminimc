@@ -8,6 +8,7 @@ import pandas as pd
 import scipy as sp
 from matplotlib.backend_bases import MouseButton
 from matplotlib import cm, colors
+from math import prod
 
 
 def plot_pdf(s):
@@ -233,7 +234,12 @@ def inspect_visually(
 def plot_sensitivities(
     mean: np.ndarray,
     stddev: np.ndarray,
-    partitions: list[dict[str, pd.DataFrame]],
+    beta_S_shape: tuple[int, int],
+    beta_CDF_shape: tuple[int, int],
+    beta_E_T_shape: tuple[int, int],
+    alpha_S_shape: tuple[int, int],
+    alpha_CDF_shape: tuple[int, int],
+    alpha_beta_T_shape: tuple[int, int],
 ):
     """
     Plots the sensitivity with respect to each TNSL parameter perturbed.
@@ -245,57 +251,53 @@ def plot_sensitivities(
         perturbed
     stddev
         Corresponding array of standard deviations for each sensitivity
-    partitions
-        A sequence of OrderedDict. Each OrderedDict corresponds to a partition.
-        An OrderedDict contains three DataFrames. A set of three DataFrames
-        corresponds to a singular value decomposition of TNSL data. Data from
-        each partition is only used for matrix dimensions and axis labels. The
-        coefficients themselves are unused.
     """
-    sensitivities = [{} for _ in partitions]
-    matrix_order = ("S", "U", "V")
-    for partition_idx, partition in enumerate(partitions):
-        # compute begin index of partition
-        partition_offset = sum(
-            sum(partition[matrix].size for matrix in partition)
-            for partition in partitions[:partition_idx]
-        )
-        for matrix_idx, matrix in enumerate(matrix_order):
-            # compute begin index of matrix
-            matrix_offset = sum(
-                partition[m].size for m in matrix_order[:matrix_idx]
-            )
-            df = partition[matrix]
-            begin_idx = partition_offset + matrix_offset
-            end_idx = begin_idx + df.size
-            sensitivities[partition_idx][matrix] = pd.DataFrame(
-                {
-                    "mean": mean[begin_idx:end_idx],
-                    "stddev": stddev[begin_idx:end_idx],
-                },
-                index=df.index,
-            )
+    # structure inputs
+    shapes = {
+        "beta": {
+            "S": beta_S_shape,
+            "U": beta_CDF_shape,
+            "V": beta_E_T_shape,
+        },
+        "alpha": {
+            "S": alpha_S_shape,
+            "U": alpha_CDF_shape,
+            "V": alpha_beta_T_shape,
+        },
+    }
+    # get offsets
+    offset = 0
+    offsets = {}
+    for dataset in ["beta", "alpha"]:
+        offsets[dataset] = {}
+        for matrix in ["S", "U", "V"]:
+            offsets[dataset][matrix] = offset
+            offset += prod(shapes[dataset][matrix])
     # use same colorbar for all matrices
     # https://matplotlib.org/stable/tutorials/colors/colormapnorms.html
+    fig = plt.figure()
+    subfigs = fig.subfigures(nrows=2, ncols=1)
     max_abs = np.max(np.abs(mean))
     norm = colors.SymLogNorm(linthresh=1e-8, vmin=-max_abs, vmax=+max_abs)
-    # plot each matrix
-    fig, axes = plt.subplots(
-        nrows=len(sensitivities), ncols=len(matrix_order), squeeze=False
-    )
-    for partition_idx, axes_row in enumerate(axes):
-        for matrix, axis in zip(matrix_order, axes_row):
-            df = sensitivities[partition_idx][matrix]["mean"]
-            # preprocess matrix depending on type
+    for subfig, dataset, dataset_title in zip(
+        subfigs, ["beta", "alpha"], [r"$\beta$ Dataset", r"$\alpha$ Dataset"]
+    ):
+        subfig.suptitle(dataset_title)
+        axes = subfig.subplots(nrows=1, ncols=3)
+        for ax, matrix, matrix_title in zip(
+            subfig.axes, ["U", "S", "V"], [r"U", r"$\Sigma$", r"V"]
+        ):
+            shape = shapes[dataset][matrix]
+            begin = offsets[dataset][matrix]
+            end = begin + prod(shape)
             if matrix == "S":
-                df = pd.DataFrame(np.diag(df), index=df.index, columns=df.index)
+                mean_array = np.diag(mean[begin:end])
             else:
-                df = df.unstack()
-            if matrix == "V":
-                df = df.T
-            # plot matrix
-            im = axis.imshow(df, norm=norm, cmap="RdBu")
-    clb = fig.colorbar(im, ax=axes.ravel().tolist())
+                mean_array = mean[begin:end].reshape(shape)
+            stddev_array = stddev[begin:end].reshape(shape)
+            ax.set_title(matrix_title)
+            im = ax.imshow(mean_array, norm=norm, cmap="RdBu")
+        fig.colorbar(im, ax=axes.ravel().tolist())
     plt.show()
 
 
