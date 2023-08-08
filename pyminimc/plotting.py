@@ -294,7 +294,7 @@ def plot_sensitivities(
                 mean_array = np.diag(mean[begin:end])
             else:
                 mean_array = mean[begin:end].reshape(shape)
-            stddev_array = stddev[begin:end].reshape(shape)
+                stddev_array = stddev[begin:end].reshape(shape)
             ax.set_title(matrix_title)
             im = ax.imshow(mean_array, norm=norm, cmap="RdBu")
         fig.colorbar(im, ax=axes.ravel().tolist())
