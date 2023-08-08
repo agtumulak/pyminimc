@@ -4,9 +4,7 @@ import re
 import subprocess
 import tempfile
 import xml.etree.ElementTree as ET
-from os.path import join
-from pyminimc import estimator, util
-from typing import Sequence
+from typing import TypedDict
 
 
 def parse_file7(mf7_path: str):
@@ -200,3 +198,61 @@ def print_errors(reference_df: pd.DataFrame, test_df: pd.DataFrame):
     # print out absolute l-inf error for DataFrame
     abs_linf_norm = residuals.abs().max().max()
     print(f"absolute l-inf norm: {abs_linf_norm}")
+
+
+SVDType = TypedDict(
+    "svd",
+    {"U": pd.DataFrame, "S": pd.DataFrame, "V": pd.DataFrame},
+    total=False,
+)
+TNSLType = TypedDict("tnsl", {"beta": SVDType, "alpha": SVDType}, total=False)
+
+
+def run_minimc_tnsl(
+    minimc_path: str,
+    input_filepath: str,
+    tnsl: TNSLType,
+):
+    """
+    Run a minimc problem with custom thermal scattering data and return output
+    as lines
+
+    Parameters
+    ----------
+    minimc_path:
+        Path to minimc executable
+    input_filepath:
+        Path to input file
+    tnsl:
+        dict containing thermal neutron scattering law data
+    """
+    tree = ET.parse(input_filepath)
+    tnsl_node_path = "nuclides/continuous/nuclide/neutron/scatter/tnsl"
+    if (tnsl_node := tree.find(tnsl_node_path)) is None:
+        raise RuntimeError(f"node not found: {tnsl_node_path}")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        print(f"Working in temporary directory: {tmpdir}")
+        # write dataframes to temporary directory
+        for datatype in tnsl:
+            for matrix in tnsl[datatype]:
+                tnsl[datatype][matrix].to_hdf(
+                    f"{tmpdir}/{datatype}_{matrix}.hdf5", "pandas"
+                )
+        # modify input file
+        for datatype, V_attribute in zip(["alpha", "beta"], ["beta_T", "E_T"]):
+            for matrix, attribute in zip(
+                ["U", "S", "V"], ["CDF", "S", V_attribute]
+            ):
+                df_filepath = f"{tmpdir}/{datatype}_{matrix}.hdf5"
+                tnsl[datatype][matrix].to_hdf(df_filepath, "pandas")
+                tnsl_node.set(f"{datatype}_{attribute}", df_filepath)
+        # write input file
+        with open(f"{tmpdir}/minimc.inp", "wb") as f:
+            tree.write(f)
+            f.flush()  # stackoverflow.com/a/9422590/5101335
+            # run minimc and parse output
+            subprocess.run([minimc_path, f.name])
+        # parse output file
+        with open(f"{tmpdir}/minimc.out", "rt") as f:
+            lines = f.readlines()
+    return lines
