@@ -239,9 +239,13 @@ def run_minimc_tnsl(
                     f"{tmpdir}/{datatype}_{matrix}.hdf5", "pandas"
                 )
         # modify input file
-        for datatype, V_attribute in zip(["alpha", "beta"], ["beta_T", "E_T"]):
+        for datatype, U_attribute, V_attribute in [
+            ["scatter_xs", "E", "T"],
+            ["alpha", "CDF", "beta_T"],
+            ["beta", "CDF", "E_T"],
+        ]:
             for matrix, attribute in zip(
-                ["U", "S", "V"], ["CDF", "S", V_attribute]
+                ["U", "S", "V"], [U_attribute, "S", V_attribute]
             ):
                 df_filepath = f"{tmpdir}/{datatype}_{matrix}.hdf5"
                 tnsl[datatype][matrix].to_hdf(df_filepath, "pandas")
